@@ -5,6 +5,7 @@
 # eslint-tek
 
 [![CI](https://github.com/frankie303/eslint-tek/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/frankie303/eslint-tek/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/eslint-tek.svg)](https://www.npmjs.com/package/eslint-tek)
 
 Run a single ESLint rule across your codebase — exactly as your config defines it. Fast.
 
