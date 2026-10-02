@@ -1,0 +1,8 @@
+node_modules/
+dist/
+pnpm-lock.yaml
+
+# Intentional test fixtures: their exact content/formatting is asserted by tests.
+tests/fixtures/
+tests/plugin-rule/
+tests/severity/

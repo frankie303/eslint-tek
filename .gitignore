@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tgz
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.env
+.env.*
+internal-docs/

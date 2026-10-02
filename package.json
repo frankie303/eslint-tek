@@ -1,0 +1,67 @@
+{
+  "name": "eslint-tek",
+  "version": "0.1.0",
+  "description": "Run one ESLint rule exactly as your config defines it — fast.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.0.9",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "author": "Mert Ciflikli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/frankie303/eslint-tek"
+  },
+  "homepage": "https://github.com/frankie303/eslint-tek#readme",
+  "bugs": "https://github.com/frankie303/eslint-tek/issues",
+  "keywords": [
+    "eslint",
+    "lint",
+    "eslint-rule",
+    "eslint-tek",
+    "eslint-focus",
+    "eslint-nibble",
+    "surgical",
+    "parallel",
+    "performance"
+  ],
+  "volta": {
+    "node": "24.15.0"
+  },
+  "bin": {
+    "eslint-tek": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "tsc -p tsconfig.build.json",
+    "dev": "node --experimental-strip-types src/bin.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/cli.test.ts",
+    "lint": "eslint . --ignore-pattern 'tests/fixtures/**' --ignore-pattern 'tests/plugin-rule/**' --ignore-pattern 'tests/severity/**'",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "smoke": "node scripts/smoke-pack.mjs"
+  },
+  "peerDependencies": {
+    "eslint": "^9.0.0 || ^10.0.0"
+  },
+  "dependencies": {
+    "commander": "^13.0.0",
+    "tinyglobby": "^0.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.0.0",
+    "eslint-plugin-reduce": "^0.1.0",
+    "prettier": "^3.9.9",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.71.0"
+  }
+}
