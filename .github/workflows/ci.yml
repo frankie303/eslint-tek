@@ -42,3 +42,28 @@ jobs:
 
       # Also verify the other supported peer (ESLint 9 is EOL but still in range).
       - run: node scripts/smoke-pack.mjs eslint@^9
+
+  # Runs the full unit suite against the other supported peer, not just a
+  # happy-path smoke: ESLint 9 and 10 resolve config errors with near-identical
+  # wording, and this asserts that parity for the branches tek matches on.
+  test-eslint9:
+    name: ESLint 9 (unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from package.json "packageManager" (do not also set `version`).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Swap in ESLint 9 for the dev dependency (ephemeral: CI checkouts are
+      # disposable, so the lockfile change is not committed).
+      - run: pnpm add -D eslint@^9.0.0
+
+      - run: pnpm test

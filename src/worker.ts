@@ -13,11 +13,11 @@ let ruleChecked = false;
  */
 function isSystemicError(message: string): boolean {
   return (
-    // e.g. Key "rules": Key "bogus-rule": Could not find "bogus-rule" in plugin "@".
+    // Bad rule name, e.g.
+    // Key "rules": Key "x": Could not find "x" in plugin "@".
     /Could not find ".*" in plugin/i.test(message) ||
-    /Definition for rule .* was not found/i.test(message) ||
-    /couldn't find a configuration file/i.test(message) ||
-    /No ESLint configuration/i.test(message)
+    // No ESLint config -- thrown by lintFiles, not the constructor.
+    /Could not find config file/i.test(message)
   );
 }
 
@@ -37,7 +37,10 @@ function isRuleNotApplicableError(message: string): boolean {
  * @returns Warning text for the user.
  */
 function ruleWarning(rule: string, message: string): string {
-  if (/Key "rules"|Could not find .* in plugin|Definition for rule/i.test(message)) {
+  if (/Could not find config file/i.test(message)) {
+    return 'Warning: no ESLint config found. Create eslint.config.mjs in your project root, or use --config.';
+  }
+  if (/Could not find ".*" in plugin/i.test(message)) {
     return `Warning: rule '${rule}' could not be resolved. Check the spelling and that its plugin is installed.`;
   }
   return `Warning: ${message}`;
@@ -226,20 +229,11 @@ parentPort!.on('message', async (msg: WorkerMessage) => {
       eslintInstance = createESLint(msg.ruleConfig);
       parentPort!.postMessage({ type: 'ready' } satisfies WorkerMessage);
     } catch (err) {
-      const message = (err as Error).message;
-      if (message.includes('Could not find config file') || message.includes('eslint.config')) {
-        parentPort!.postMessage({
-          type: 'error',
-          error: 'No ESLint config found. Create eslint.config.mjs in your project root, or use --config.',
-          batchId: -1,
-        } satisfies WorkerMessage);
-      } else {
-        parentPort!.postMessage({
-          type: 'error',
-          error: message,
-          batchId: -1,
-        } satisfies WorkerMessage);
-      }
+      parentPort!.postMessage({
+        type: 'error',
+        error: (err as Error).message,
+        batchId: -1,
+      } satisfies WorkerMessage);
     }
     return;
   }

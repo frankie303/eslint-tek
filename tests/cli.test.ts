@@ -100,6 +100,55 @@ describe('eslint-tek CLI', () => {
     assert.ok(!output.includes('object-spread.js'), 'should not report violations');
   });
 
+  it('short-circuits on a systemic config error (bad rule name)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tek-systemic-'));
+    const config = join(dir, 'eslint.config.mjs');
+
+    try {
+      // A config that references a rule which doesn't exist makes ESLint throw
+      // "Key "rules": ... Could not find "..." in plugin "@"." for every file.
+      await writeFile(config, "export default [{ files: ['**/*.js'], rules: { 'totally-bogus-rule': 'error' } }];\n");
+      await writeFile(join(dir, 'a.js'), 'const a = 1;\n');
+
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        const { output, error, exitCode } = await captureConsole(() =>
+          run(['totally-bogus-rule', '.', '--config', config, '--workers', '4', '--format', 'json']),
+        );
+
+        const parsed = JSON.parse(output) as { results: unknown[]; errors: unknown[] };
+        assert.equal(parsed.results.length, 0, 'no results for a systemic failure');
+        assert.ok(parsed.errors.length > 0, 'files are reported as failed');
+        assert.ok(error.includes('could not be resolved'), 'emits a friendly warning once');
+        assert.equal(exitCode, 1);
+      } finally {
+        process.chdir(cwd);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('hints when no ESLint config is found', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tek-noconfig-'));
+    try {
+      await writeFile(join(dir, 'a.js'), 'const a = 1;\n');
+
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        const { error, exitCode } = await captureConsole(() => run(['no-console', '.', '--workers', '1']));
+        assert.ok(error.includes('no ESLint config'), 'friendly no-config hint');
+        assert.equal(exitCode, 1);
+      } finally {
+        process.chdir(cwd);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('honours the severity configured by the user (warn stays warn)', async () => {
     const config = resolve('tests/severity/eslint.config.mjs');
     const { output, exitCode } = await captureConsole(() =>
@@ -295,6 +344,70 @@ describe('eslint-tek CLI', () => {
     assert.deepEqual([...tekSet].sort(), [...refSet].sort(), 'tek should match ESLint');
     assert.ok(!tekResults.some(r => r.filePath.endsWith('clean.js')), 'clean fixture not reported');
     assert.equal(parsed.errors.length, 0, "files outside the plugin's scope are skipped, not reported as errors");
+  });
+
+  it('skips files whose config never registers the rule plugin', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tek-scope-'));
+    const config = join(dir, 'eslint.config.mjs');
+
+    try {
+      // The plugin is registered only for covered.js, but the rule is enabled
+      // for every file. Linting skipped.js throws `Could not find plugin "x" in
+      // configuration`; tek must skip it rather than report it as an error.
+      await writeFile(
+        config,
+        [
+          'const x = {',
+          '  rules: {',
+          '    r: {',
+          '      meta: { schema: [] },',
+          '      create(context) {',
+          '        return {',
+          '          Identifier(node) {',
+          "            if (node.name === 'boom') context.report({ node, message: 'boom' });",
+          '          },',
+          '        };',
+          '      },',
+          '    },',
+          '  },',
+          '};',
+          'export default [',
+          "  { files: ['covered.js'], plugins: { x } },",
+          "  { files: ['**/*.js'], rules: { 'x/r': 'error' } },",
+          '];',
+          '',
+        ].join('\n'),
+      );
+      await writeFile(join(dir, 'covered.js'), 'boom;\n');
+      await writeFile(join(dir, 'skipped.js'), 'boom;\n');
+
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        const { output, error, exitCode } = await captureConsole(() =>
+          run(['x/r', 'covered.js', 'skipped.js', '--config', config, '--workers', '1', '--format', 'json']),
+        );
+
+        const parsed = JSON.parse(output) as {
+          results: Array<{ filePath: string; messages: Array<{ ruleId: string | null }> }>;
+          errors: Array<{ filePath: string; error: string }>;
+        };
+        const names = parsed.results.map(r => r.filePath.split('/').pop());
+
+        assert.deepEqual(names, ['covered.js'], 'only the file whose config registers the plugin is linted');
+        assert.ok(
+          parsed.results[0]!.messages.some(m => m.ruleId === 'x/r'),
+          'the covered file still reports the rule',
+        );
+        assert.equal(parsed.errors.length, 0, 'the unscoped file is skipped, not reported as an error');
+        assert.ok(error.includes('is not configured for 1 file(s)'), 'warns about the skipped file');
+        assert.equal(exitCode, 1, 'the covered violation still fails the run');
+      } finally {
+        process.chdir(cwd);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('caches results across runs with --cache', async () => {
