@@ -12,7 +12,7 @@ Run a single ESLint rule across your codebase — exactly as your config defines
 _tek_ (Turkish) = single, one. That's the idea: one rule, full speed.
 
 **tek's selling point is config fidelity.** A rule scoped to certain folders stays scoped,
-`warn` stays `warn`, and your plugins, parser, and `eslint-disable` comments all apply —
+`warn` stays `warn`, and your plugins, custom rules, parser, and `eslint-disable` comments all apply —
 tek just runs **only** that rule, in parallel.
 
 Plain `eslint` can't do that: `--rule '<json>'` overrides _globally_ (it lints files your
@@ -82,20 +82,13 @@ src/hooks/useData.ts:34:8  React Hook useCallback has missing dependencies
 | `--cache-location <path>` | Cache base path (default: `.eslintcache`). tek writes `<path>.<rule>.<worker>`       |
 | `--quiet`                 | Only show errors, suppress warnings                                                  |
 
-## How It Works
+## Behavior
 
-1. **File discovery** -- `git ls-files` finds tracked and untracked files (respecting `.gitignore`); `tinyglobby` is used outside git repos
-2. **Worker pool** -- Files are split across Node.js worker threads
-3. **Surgical ESLint** -- Each worker runs ESLint with `ruleFilter` to execute only the target rule
-4. **Aggregate & print** -- Results from all workers are merged, then formatted
-
-Your existing ESLint config, plugins, and parsers are fully respected. Custom rules work.
-
-tek reports rules **exactly as your config defines them**, including severity
-(`warn` stays `warn`, and warnings-only runs exit 0). The rule must be enabled
-in your config for it to run; if it isn't, tek tells you and points at how to
-enable it instead of reporting an empty result. This is the same contract as
-running `eslint` itself.
+- **File selection:** tek discovers files with `git ls-files`, so it honors
+  `.gitignore` (unlike `eslint .`, which only honors its own config ignores);
+  `tinyglobby` is used outside git repos.
+- **Config fidelity:** if the rule isn't enabled, tek says so instead of reporting
+  nothing, and warnings-only runs exit 0. Same contract as `eslint`.
 
 ## Why It's Fast
 
