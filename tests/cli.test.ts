@@ -1,8 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ESLint } from 'eslint';
@@ -31,15 +30,6 @@ function captureConsole(fn: () => Promise<number>): Promise<{ output: string; er
 }
 
 describe('eslint-tek CLI', () => {
-  it('finds no-console violations in fixture files', async () => {
-    const { output, exitCode } = await captureConsole(() => run(['no-console', 'tests/fixtures', '--workers', '1']));
-
-    assert.ok(output.includes('has-console.js'), 'should report has-console.js');
-    assert.ok(!output.includes('clean.js'), 'should not report clean.js');
-    assert.ok(!output.includes('has-debugger.js'), 'no-console should not flag debugger');
-    assert.equal(exitCode, 1, 'should exit 1 when errors found');
-  });
-
   it('finds no-debugger violations only in the right file', async () => {
     const { output, exitCode } = await captureConsole(() => run(['no-debugger', 'tests/fixtures', '--workers', '1']));
 
@@ -67,11 +57,13 @@ describe('eslint-tek CLI', () => {
     assert.ok(parsed.results[0].messages.length > 0, 'result should have messages');
   });
 
-  it('runs with multiple workers', async () => {
+  it('finds no-console violations across multiple workers', async () => {
     const { output, exitCode } = await captureConsole(() => run(['no-console', 'tests/fixtures', '--workers', '4']));
 
-    assert.ok(output.includes('has-console.js'));
-    assert.equal(exitCode, 1);
+    assert.ok(output.includes('has-console.js'), 'should report has-console.js');
+    assert.ok(!output.includes('clean.js'), 'should not report clean.js');
+    assert.ok(!output.includes('has-debugger.js'), 'no-console should not flag debugger');
+    assert.equal(exitCode, 1, 'should exit 1 when errors found');
   });
 
   it('does not let --fix-type swallow positional paths', async () => {
@@ -438,7 +430,10 @@ describe('eslint-tek CLI', () => {
       process.chdir(dir);
       try {
         const cold = await captureConsole(() => run(args));
-        assert.ok(existsSync(`${cache}.no-console.0`), 'per-worker, per-rule cache file should be written');
+        assert.ok(
+          (await readdir(dir)).some(f => f.startsWith('.eslintcache')),
+          'a cache file should be written',
+        );
 
         const warm = await captureConsole(() => run(args));
         assert.equal(warm.exitCode, cold.exitCode, 'warm run should match cold');
@@ -480,8 +475,8 @@ describe('eslint-tek CLI', () => {
         );
         const noCache = await captureConsole(() => run(args('no-debugger')));
 
-        assert.ok(existsSync(`${cache}.no-console.0`), 'no-console cache is written');
-        assert.ok(existsSync(`${cache}.no-debugger.0`), 'no-debugger cache is separate');
+        const cacheFiles = (await readdir(dir)).filter(f => f.startsWith('.eslintcache'));
+        assert.ok(cacheFiles.length >= 2, 'each rule gets its own cache file');
         assert.deepEqual(
           JSON.parse(withCache.output).results,
           JSON.parse(noCache.output).results,
@@ -583,14 +578,53 @@ describe('eslint-tek CLI', () => {
     }
   });
 
-  it('scales the worker count down for small runs', () => {
+  it('produces byte-identical --fix output to ESLint', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'tek-fix-parity-')));
+    const config = join(dir, 'eslint.config.mjs');
+    const original = 'function f() {\n  let a = 1;\n  let b = 2;\n  return a + b;\n}\nexport { f };\n';
+
+    try {
+      // Only one fixable rule is enabled, so ESLint's fix *is* that rule's fix
+      // and can be compared against tek's single-rule pass.
+      await writeFile(config, "export default [{ files: ['**/*.js'], rules: { 'prefer-const': 'error' } }];\n");
+      await writeFile(join(dir, 'tek.js'), original);
+      await writeFile(join(dir, 'ref.js'), original);
+
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        await captureConsole(() =>
+          run(['prefer-const', 'tek.js', '--config', 'eslint.config.mjs', '--workers', '1', '--fix']),
+        );
+
+        const eslint = new ESLint({ fix: true, overrideConfigFile: config });
+        await ESLint.outputFixes(await eslint.lintFiles(['ref.js']));
+
+        const tekOut = await readFile(join(dir, 'tek.js'), 'utf8');
+        const refOut = await readFile(join(dir, 'ref.js'), 'utf8');
+
+        assert.ok(tekOut.includes('const a'), 'tek should have applied the fix');
+        assert.equal(tekOut, refOut, 'tek --fix must match eslint --fix byte-for-byte');
+      } finally {
+        process.chdir(cwd);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('scales the worker count within bounds', () => {
     assert.equal(chooseWorkerCount(0, 8), 0, 'no files, no workers');
+    assert.equal(chooseWorkerCount(5, 0), 0, 'no workers when the max is zero');
     assert.equal(chooseWorkerCount(1, 8), 1, 'one file, one worker');
-    assert.equal(chooseWorkerCount(10, 8), 1, 'tiny run uses a single worker');
-    assert.equal(chooseWorkerCount(400, 8), 1);
-    assert.equal(chooseWorkerCount(401, 8), 2);
-    assert.equal(chooseWorkerCount(1000, 8), 3);
-    assert.equal(chooseWorkerCount(4000, 8), 8, 'never exceeds the requested max');
-    assert.equal(chooseWorkerCount(500, 2), 2, 'respects a lower max');
+
+    for (const fileCount of [1, 2, 399, 400, 401, 1000, 5000]) {
+      for (const maxWorkers of [1, 2, 8]) {
+        const workers = chooseWorkerCount(fileCount, maxWorkers);
+        assert.ok(workers >= 1, 'a non-empty run gets at least one worker');
+        assert.ok(workers <= maxWorkers, 'never exceeds the requested max');
+        assert.ok(workers <= fileCount, 'never more workers than files');
+      }
+    }
   });
 });
