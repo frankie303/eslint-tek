@@ -13,8 +13,10 @@ let ruleChecked = false;
  */
 function isSystemicError(message: string): boolean {
   return (
-    // Bad rule name, e.g.
-    // Key "rules": Key "x": Could not find "x" in plugin "@".
+    /*
+     * Bad rule name, e.g.
+     * Key "rules": Key "x": Could not find "x" in plugin "@".
+     */
     /Could not find ".*" in plugin/i.test(message) ||
     // No ESLint config -- thrown by lintFiles, not the constructor.
     /Could not find config file/i.test(message)
@@ -53,12 +55,19 @@ function ruleWarning(rule: string, message: string): string {
  */
 function createESLint(config: RuleConfig): ESLint {
   const opts: ESLint.Options = {
-    // Run only the requested rule. We do NOT force-enable it or override its
-    // severity: tek reports exactly what the user's config says. If the rule
-    // isn't enabled, the worker warns (see ruleDisabledWarning) instead of
-    // silently doing nothing.
+    /*
+     * Run only the requested rule. We do NOT force-enable it or override its
+     * severity: tek reports exactly what the user's config says. If the rule
+     * isn't enabled, the worker warns (see ruleDisabledWarning) instead of
+     * silently doing nothing.
+     */
     ruleFilter: ({ ruleId }) => ruleId === config.rule,
-    fix: config.fix,
+    /*
+     * Only fix messages from the target rule. ESLint reports unused
+     * eslint-disable directives by default (ruleId: null) and --fix deletes
+     * them, so a plain `fix: true` rewrites files for rules we never ran.
+     */
+    fix: config.fix ? message => message.ruleId === config.rule : false,
   };
 
   if (config.fixTypes.length > 0) {
@@ -143,15 +152,18 @@ async function ruleDisabledWarning(eslint: ESLint, rule: string, files: string[]
  */
 function mapResults(raw: ESLint.LintResult[], rule: string): LintResult[] {
   return raw
-    .map(r => ({
-      filePath: r.filePath,
-      // Keep the target rule plus genuine fatal errors (parse errors). Drop
-      // everything else ESLint emits, e.g. "Definition for rule 'x' was not
-      // found" from unrelated disable comments, which would otherwise be
-      // reported (and fail the run) for a rule we never asked about.
-      messages: r.messages
-        .filter(m => m.ruleId === rule || m.fatal === true)
-        .map(m => ({
+    .map(r => {
+      /*
+       * Keep the target rule plus genuine fatal errors (parse errors). Drop
+       * everything else ESLint emits, e.g. "Definition for rule 'x' was not
+       * found" from unrelated disable comments, which would otherwise be
+       * reported (and fail the run) for a rule we never asked about.
+       */
+      const messages = r.messages.filter(m => m.ruleId === rule || m.fatal === true);
+
+      return {
+        filePath: r.filePath,
+        messages: messages.map(m => ({
           ruleId: m.ruleId,
           message: m.message,
           severity: m.severity as 1 | 2,
@@ -159,8 +171,14 @@ function mapResults(raw: ESLint.LintResult[], rule: string): LintResult[] {
           column: m.column,
           fatal: m.fatal,
         })),
-      fixableCount: r.fixableErrorCount + r.fixableWarningCount,
-    }))
+        /*
+         * Count fixes from the kept messages only. ESLint's own fixable counts
+         * include non-target fixes (e.g. unused eslint-disable directives) that
+         * tek deliberately does not apply.
+         */
+        fixableCount: messages.filter(m => m.fix).length,
+      };
+    })
     .filter(r => r.messages.length > 0);
 }
 
@@ -185,8 +203,10 @@ async function lintBatchWithRetry(
   } catch (err) {
     const message = (err as Error).message;
 
-    // Retrying a systemic failure file-by-file would hammer ESLint with N
-    // invocations and emit N identical errors. Report once instead.
+    /*
+     * Retrying a systemic failure file-by-file would hammer ESLint with N
+     * invocations and emit N identical errors. Report once instead.
+     */
     if (isSystemicError(message)) {
       return {
         results: [],

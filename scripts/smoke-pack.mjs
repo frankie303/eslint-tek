@@ -1,6 +1,8 @@
-// Pack-install smoke test: builds the tarball, installs it into a throwaway
-// project (with eslint as a peer), and runs the CLI. Guards against shipping a
-// package that cannot run (e.g. the node_modules TS-stripping restriction).
+/*
+ * Pack-install smoke test: builds the tarball, installs it into a throwaway
+ * project (with eslint as a peer), and runs the CLI. Guards against shipping a
+ * package that cannot run (e.g. the node_modules TS-stripping restriction).
+ */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

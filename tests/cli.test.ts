@@ -97,8 +97,10 @@ describe('eslint-tek CLI', () => {
     const config = join(dir, 'eslint.config.mjs');
 
     try {
-      // A config that references a rule which doesn't exist makes ESLint throw
-      // "Key "rules": ... Could not find "..." in plugin "@"." for every file.
+      /*
+       * A config that references a rule which doesn't exist makes ESLint throw
+       * "Key "rules": ... Could not find "..." in plugin "@"." for every file.
+       */
       await writeFile(config, "export default [{ files: ['**/*.js'], rules: { 'totally-bogus-rule': 'error' } }];\n");
       await writeFile(join(dir, 'a.js'), 'const a = 1;\n');
 
@@ -246,9 +248,11 @@ describe('eslint-tek CLI', () => {
 
     try {
       await writeFile(config, "export default [{ rules: { 'no-console': 'error' } }];\n");
-      // A disable comment for an undefined rule makes ESLint emit a
-      // "Definition for rule ... was not found" error. With no console usage
-      // in the file, running `no-console` must still be clean.
+      /*
+       * A disable comment for an undefined rule makes ESLint emit a
+       * "Definition for rule ... was not found" error. With no console usage
+       * in the file, running `no-console` must still be clean.
+       */
       await writeFile(join(dir, 'unknown-disable.js'), '/* eslint-disable not-a-real-rule */\nconst a = 1;\n');
 
       const cwd = process.cwd();
@@ -343,9 +347,11 @@ describe('eslint-tek CLI', () => {
     const config = join(dir, 'eslint.config.mjs');
 
     try {
-      // The plugin is registered only for covered.js, but the rule is enabled
-      // for every file. Linting skipped.js throws `Could not find plugin "x" in
-      // configuration`; tek must skip it rather than report it as an error.
+      /*
+       * The plugin is registered only for covered.js, but the rule is enabled
+       * for every file. Linting skipped.js throws `Could not find plugin "x" in
+       * configuration`; tek must skip it rather than report it as an error.
+       */
       await writeFile(
         config,
         [
@@ -584,8 +590,10 @@ describe('eslint-tek CLI', () => {
     const original = 'function f() {\n  let a = 1;\n  let b = 2;\n  return a + b;\n}\nexport { f };\n';
 
     try {
-      // Only one fixable rule is enabled, so ESLint's fix *is* that rule's fix
-      // and can be compared against tek's single-rule pass.
+      /*
+       * Only one fixable rule is enabled, so ESLint's fix *is* that rule's fix
+       * and can be compared against tek's single-rule pass.
+       */
       await writeFile(config, "export default [{ files: ['**/*.js'], rules: { 'prefer-const': 'error' } }];\n");
       await writeFile(join(dir, 'tek.js'), original);
       await writeFile(join(dir, 'ref.js'), original);
@@ -605,6 +613,78 @@ describe('eslint-tek CLI', () => {
 
         assert.ok(tekOut.includes('const a'), 'tek should have applied the fix');
         assert.equal(tekOut, refOut, 'tek --fix must match eslint --fix byte-for-byte');
+      } finally {
+        process.chdir(cwd);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('--fix only writes fixes for the target rule', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tek-fix-scope-'));
+    const config = join(dir, 'eslint.config.mjs');
+    const file = join(dir, 'x.js');
+    const original = '/* eslint-disable-next-line no-console */\nlet x = 1;\nexport { x };\n';
+
+    try {
+      /*
+       * `no-console` is off, so its disable directive is unused and ESLint would
+       * remove it during --fix. Running `prefer-const` must leave it untouched
+       * while still applying its own fix.
+       */
+      await writeFile(
+        config,
+        "export default [{ files: ['**/*.js'], rules: { 'no-console': 'off', 'prefer-const': 'error' } }];\n",
+      );
+      await writeFile(file, original);
+
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        const { output, exitCode } = await captureConsole(() =>
+          run(['prefer-const', '.', '--config', 'eslint.config.mjs', '--workers', '1', '--fix']),
+        );
+
+        const fixed = await readFile(file, 'utf8');
+        assert.ok(fixed.includes('const x'), 'the target rule fix is applied');
+        assert.ok(fixed.includes('eslint-disable-next-line no-console'), 'another rule\u2019s disable comment is kept');
+        assert.ok(output.includes('No issues found'), 'nothing left to report');
+        assert.equal(exitCode, 0);
+      } finally {
+        process.chdir(cwd);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not count another rule\u2019s unused directive as fixable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tek-fix-count-'));
+    const config = join(dir, 'eslint.config.mjs');
+    const file = join(dir, 'x.js');
+    const original = '/* eslint-disable-next-line no-debugger */\nconsole.log(1);\n';
+
+    try {
+      /*
+       * `no-console` is not fixable, and the unused directive belongs to a rule
+       * that is off. Neither should be reported as fixable.
+       */
+      await writeFile(
+        config,
+        "export default [{ files: ['**/*.js'], rules: { 'no-console': 'error', 'no-debugger': 'off' } }];\n",
+      );
+      await writeFile(file, original);
+
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        const { output } = await captureConsole(() =>
+          run(['no-console', '.', '--config', 'eslint.config.mjs', '--workers', '1', '--fix']),
+        );
+
+        assert.equal(await readFile(file, 'utf8'), original, 'the unrelated directive is left untouched');
+        assert.ok(output.includes('0 fixable'), 'only the target rule\u2019s fixes are counted');
       } finally {
         process.chdir(cwd);
       }

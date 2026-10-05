@@ -108,8 +108,10 @@ export async function discoverFiles(roots: string[], extensions: string[]): Prom
     return dedupe([...explicitFiles, ...absolute]);
   }
 
-  // Fallback: not a git repo, use glob. dot:true keeps dot-directories in
-  // step with the git path; .gitignore can't be honoured without git.
+  /*
+   * Fallback: not a git repo, use glob. dot:true keeps dot-directories in
+   * step with the git path; .gitignore can't be honoured without git.
+   */
   const extPattern = extensions.length === 1 ? `**/*.${extensions[0]}` : `**/*.{${extensions.join(',')}}`;
 
   const patterns = dirs.map(dir => {
@@ -137,8 +139,10 @@ export function getChangedFiles(roots: string[], baseRef: string, extensions: st
   const cwd = process.cwd();
   const opts = { cwd, encoding: 'utf-8' as const, maxBuffer: 64 * 1024 * 1024 };
 
-  // Tracked changes vs the base ref; --diff-filter=ACMR excludes deletions so
-  // we never hand ESLint a path that no longer exists.
+  /*
+   * Tracked changes vs the base ref; --diff-filter=ACMR excludes deletions so
+   * we never hand ESLint a path that no longer exists.
+   */
   const changed = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, '--', '.'], opts)
     .split('\n')
     .filter(Boolean);
