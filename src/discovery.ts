@@ -74,6 +74,21 @@ function dedupe(files: string[]): string[] {
 }
 
 /**
+ * Keep only paths that exist as files on disk. `git ls-files --cached` lists
+ * index entries that can be absent from the working tree for more than one
+ * reason: unstaged deletions and sparse-checkout paths (which
+ * `git ls-files --deleted` does not report). Handing either to ESLint aborts
+ * the run with "No files matching '<path>' were found". A stat per candidate
+ * file is the price of catching every such case.
+ */
+async function filterExisting(files: string[]): Promise<string[]> {
+  const checks = await Promise.all(
+    files.map(async file => ((await stat(file).catch(() => null))?.isFile() ? file : null)),
+  );
+  return checks.filter((file): file is string => file !== null);
+}
+
+/**
  * Discover lintable files under the given roots, using git when possible.
  * @param roots - Directories or files to search.
  * @param extensions - File extensions to keep, without dots.
@@ -105,7 +120,8 @@ export async function discoverFiles(roots: string[], extensions: string[]): Prom
     const filtered = filterByRoots(gitFiles, dirs, cwd);
     const byExt = filterByExtensions(filtered, extSet);
     const absolute = byExt.map(f => resolve(cwd, f));
-    return dedupe([...explicitFiles, ...absolute]);
+    const existing = await filterExisting(absolute);
+    return dedupe([...explicitFiles, ...existing]);
   }
 
   /*

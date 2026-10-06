@@ -229,6 +229,44 @@ describe('eslint-tek CLI', () => {
     }
   });
 
+  it('drops tracked files deleted from the working tree (unstaged)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tek-deleted-'));
+    const config = join(dir, 'eslint.config.mjs');
+
+    try {
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
+      git('init', '-q');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'test');
+      await writeFile(config, "export default [{ files: ['**/*.js'], rules: { 'no-console': 'error' } }];\n");
+      await writeFile(join(dir, 'kept.js'), 'export const kept = 1;\n');
+      await writeFile(join(dir, 'removed.js'), 'console.log(1);\n');
+      git('add', '.');
+      git('commit', '-qm', 'init');
+
+      await rm(join(dir, 'removed.js')); // tracked deletion, not staged
+
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        const files = await discoverFiles(['.'], ['js']);
+        const names = files.map(f => f.split('/').pop());
+        assert.ok(names.includes('kept.js'), 'existing tracked file is found');
+        assert.ok(!names.includes('removed.js'), 'deleted tracked file is dropped');
+
+        const { output, error, exitCode } = await captureConsole(() =>
+          run(['no-console', '.', '--config', config, '--workers', '1']),
+        );
+        assert.ok(!`${output}${error}`.includes('No files matching'), 'ESLint is never handed a missing path');
+        assert.equal(exitCode, 0, 'nothing to report after the deletion');
+      } finally {
+        process.chdir(cwd);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('does not print "undefined" for messages without a location', () => {
     const out = formatText([
       {
